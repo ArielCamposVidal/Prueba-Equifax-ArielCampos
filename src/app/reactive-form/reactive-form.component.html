@@ -1,0 +1,101 @@
+<!-- main app container -->
+<div class="card m-3">
+    <h5 class="card-header">Formulario de usuarios</h5>
+    <div class="card-body">
+        <form [formGroup]="registerForm" (ngSubmit)="onSubmit()">
+            <div class="form-row">
+
+                <div class="form-group col-4">
+                    <label>Nombre</label>
+                    <input type="text" formControlName="firstName" maxlength="40" class="form-control" [ngClass]="{ 'is-invalid': submitted && f.firstName.errors }" />
+                    <div *ngIf="submitted && f.firstName.errors" class="invalid-feedback">
+                        <div *ngIf="f.firstName.errors.required">Nombre es requerido</div>
+
+                    </div>
+                </div>
+                <div class="form-group col-4">
+                    <label>Apellido</label>
+                    <input type="text" formControlName="lastName" maxlength="40" class="form-control" [ngClass]="{ 'is-invalid': submitted && f.lastName.errors }" />
+                    <div *ngIf="submitted && f.lastName.errors" class="invalid-feedback">
+                        <div *ngIf="f.lastName.errors.required">apellido es requerido</div>
+                    </div>
+                </div>
+                <div class="form-group col-4">
+                    <label>Email</label>
+                    <input type="text" formControlName="email" maxlength="60" class="form-control" [ngClass]="{ 'is-invalid': submitted && f.email.errors }" />
+                    <div *ngIf="submitted && f.email.errors" class="invalid-feedback">
+                        <div *ngIf="f.email.errors.required">Email es requerido</div>
+                        <div *ngIf="f.email.errors.email">ingrese una dirección de email valida</div>
+                    </div>
+                </div>
+            </div>
+
+
+            <div class="form-row">
+                <div class="form-group col">
+                    <label>Edad</label>
+                    <input type="text" formControlName="age" maxlength="3" class="form-control" [ngClass]="{ 'is-invalid': submitted && f.age.errors }" />
+                    <div *ngIf="submitted && f.age.errors" class="invalid-feedback">
+                        <div *ngIf="f.age.errors.required">Edad es requerida</div>
+                        <div *ngIf="f.age.errors.pattern">Edad solo debe contener números</div>
+                    </div>
+                </div>
+                <div class="form-group col">
+                    <label>Nombre Usuario</label>
+                    <input type="text" formControlName="userName" maxlength="30" class="form-control" [ngClass]="{ 'is-invalid': submitted && f.userName.errors }" />
+                    <div *ngIf="submitted && f.userName.errors" class="invalid-feedback">
+                        <div *ngIf="f.userName.errors.required">Nombre de usuario requerido</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group col-4">
+                    <label> Genero</label> <br>
+                    <label>
+                <input type="radio" value="M" formControlName="gender" class="form-control gender" [ngClass]="{ 'is-invalid': submitted && f.gender.errors }">
+                <span>Masculino</span>
+                <div *ngIf="submitted && f.gender.errors" class="invalid-feedback">
+                    <div *ngIf="f.gender.errors.required">Genero requerido</div>
+                </div>
+                </label>
+                    <label>
+                    <input type="radio" value="F" formControlName="gender" class="form-control gender" [ngClass]="{ 'is-invalid': submitted && f.gender.errors }">
+                    <span>Femenino</span>
+                    <div *ngIf="submitted && f.gender.errors" class="invalid-feedback">
+                        <div *ngIf="f.gender.errors.required">Genero requerido</div>
+                    </div>
+                    </label>
+                </div>
+                <div class="form-group col-4">
+                    <label> Estado</label> <br>
+                    <input type="checkbox" formControlName="isWorkNow" id="isWorkNow" class="form-check-input" />
+                    <label for=" isWorkNow " class="form-check-label ">Trabaja?</label>
+
+                </div>
+            </div>
+
+            <div class="form-row" *ngIf="registerForm.value.age > 17 && registerForm.value.isWorkNow == true">
+                <div class="form-group col">
+                    <label>Compañia</label>
+                    <input type="text" formControlName="nombreCompania" maxlength="18" class="form-control" [ngClass]="{ 'is-invalid': submitted && f.nombreCompania.errors }" />
+                    <div *ngIf="submitted && f.nombreCompania.errors" class="invalid-feedback">
+                    </div>
+                </div>
+                <div class="form-group col">
+                    <label>Años compañia</label>
+                    <input type="text" formControlName="aniosCompania" class="form-control" [ngClass]="{ 'is-invalid': submitted && f.aniosCompania.errors }" />
+                    <div *ngIf="submitted && f.aniosCompania.errors" class="invalid-feedback">
+                        <div *ngIf="f.aniosCompania.errors.max">Añios compañia máximo 15</div>
+                        <div *ngIf="f.aniosCompania.errors.pattern">Añios compañia solo numeros</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="text-center ">
+                <button class="btn btn-primary mr-1 ">Register</button>
+                <button class="btn btn-secondary " type="reset " (click)="onReset() ">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>

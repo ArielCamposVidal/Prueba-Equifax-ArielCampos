@@ -1,0 +1,11 @@
+<div class="container">
+  <h1>Prueba angular</h1>
+  <h4>Los ejercicios con letra azul son requeridos, los grises son opcionales</h4>
+  <div *ngFor="let todo of todos" class="container" [ngStyle]="{'color': todo.required ? '#229' : '#444' }"
+    style="border: 1px solid gray;">
+    <h5>
+      {{todo.name}}
+    </h5>
+    <div>{{todo.description}}</div>
+  </div>
+</div>
