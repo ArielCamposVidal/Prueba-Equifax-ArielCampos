@@ -1,103 +1,30 @@
-@ExtendWith(MockitoExtension.class)
-class CallB2DServiceTest {
+@Test
+void getofferContent_shouldReturnContent_whenValidInput() throws Exception {
+    // Arrange
+    String typeDevice = "mobile";
+    String token = "token";
 
-    @Mock
-    private WebClient webClient;
+    B2DResponse mockB2DResponse = new B2DResponse(); // Ajusta según tu clase real
+    ModyoResponse mockModyoResponse = new ModyoResponse(); // Ajusta según tu clase real
+    List<B2DToModyoKeyDTO> modyoKeys = List.of(new B2DToModyoKeyDTO()); // Dummy list
+    PostRetrieveCampaigncontentList mockContent = new PostRetrieveCampaigncontentList(); // El retorno final
 
-    @Mock
-    private WebClient.RequestBodyUriSpec requestBodyUriSpec;
+    when(modyoRepository.callModyo(Constantsutil.CLIENT_ID))
+        .thenReturn(Mono.just(mockModyoResponse));
 
-    @Mock
-    private WebClient.RequestBodySpec requestBodySpec;
+    when(b2DRepository.callB2D(any()))
+        .thenReturn(Mono.just(mockB2DResponse));
 
-    @Mock
-    private WebClient.RequestHeadersSpec<?> requestHeadersSpec;
+    doReturn(modyoKeys).when(useCase)
+        .extraerModyokeys(eq(mockB2DResponse), anyString());
 
-    @Mock
-    private WebClient.ResponseSpec responseSpec;
+    doReturn(Mono.just(mockContent)).when(useCase)
+        .buildCampaignContentList(eq(modyoKeys), eq(Mono.just(mockModyoResponse)), eq(typeDevice));
 
-    @InjectMocks
-    private CallB2DService service; // Reemplaza por el nombre real de tu clase
+    // Act
+    PostRetrieveCampaigncontentList result = useCase.getofferContent(typeDevice, token).block();
 
-    private final B2DRequestDto request = new B2DRequestDto();
-
-    @Test
-    void shouldReturnB2DResponse_whenStatusIs2xx() {
-        B2XResponseDto expectedResponse = new B2XResponseDto();
-
-        // Mock de flujo WebClient
-        Mockito.when(webClient.post()).thenReturn(requestBodyUriSpec);
-        Mockito.when(requestBodyUriSpec.uri(any(Function.class))).thenReturn(requestBodySpec);
-        Mockito.when(requestBodySpec.bodyValue(request)).thenReturn(requestHeadersSpec);
-        Mockito.when(requestHeadersSpec.header(eq(HttpHeaders.CONNECTION), anyString())).thenReturn(requestHeadersSpec);
-        Mockito.when(requestHeadersSpec.exchangeToMono(any())).thenAnswer(invocation -> {
-            Function<ClientResponse, Mono<B2XResponseDto>> func = invocation.getArgument(0);
-            ClientResponse clientResponse = ClientResponse.create(HttpStatus.OK)
-                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-                .body("{\"someField\":\"value\"}")
-                .build();
-            return func.apply(clientResponse).thenReturn(expectedResponse);
-        });
-
-        Mono<B2XResponseDto> result = service.callB2D(request);
-
-        StepVerifier.create(result)
-            .expectNext(expectedResponse)
-            .verifyComplete();
-    }
-
-    @Test
-    void shouldReturnServiceException_whenStatusIs4xx() {
-        Mockito.when(webClient.post()).thenReturn(requestBodyUriSpec);
-        Mockito.when(requestBodyUriSpec.uri(any(Function.class))).thenReturn(requestBodySpec);
-        Mockito.when(requestBodySpec.bodyValue(request)).thenReturn(requestHeadersSpec);
-        Mockito.when(requestHeadersSpec.header(eq(HttpHeaders.CONNECTION), anyString())).thenReturn(requestHeadersSpec);
-        Mockito.when(requestHeadersSpec.exchangeToMono(any())).thenAnswer(invocation -> {
-            Function<ClientResponse, Mono<B2XResponseDto>> func = invocation.getArgument(0);
-            ClientResponse clientResponse = ClientResponse.create(HttpStatus.BAD_REQUEST).build();
-            return func.apply(clientResponse);
-        });
-
-        Mono<B2XResponseDto> result = service.callB2D(request);
-
-        StepVerifier.create(result)
-            .expectErrorSatisfies(throwable -> {
-                assertThat(throwable).isInstanceOf(ServiceException.class);
-                ServiceException se = (ServiceException) throwable;
-                assertThat(se.getErrors()).hasSize(1);
-                assertThat(se.getErrors().get(0).getMessage()).contains("Error communicating with B2D");
-            })
-            .verify();
-    }
-
-    @Test
-    void shouldReturnOriginalServiceExceptionInFallback() {
-        ServiceException ex = new ServiceException(List.of(
-            new ErrorDetail("400", "mensaje original", "error", "desc")
-        ));
-
-        Mono<B2XResponseDto> result = service.callB2DFallback(request, ex);
-
-        StepVerifier.create(result)
-            .expectErrorSatisfies(err -> {
-                assertThat(err).isInstanceOf(ServiceException.class);
-                assertThat(((ServiceException) err).getErrors().get(0).getMessage()).isEqualTo("mensaje original");
-            })
-            .verify();
-    }
-
-    @Test
-    void shouldReturnFallbackException_whenOtherExceptionOccurs() {
-        RuntimeException ex = new RuntimeException("Timeout");
-
-        Mono<B2XResponseDto> result = service.callB2DFallback(request, ex);
-
-        StepVerifier.create(result)
-            .expectErrorSatisfies(err -> {
-                assertThat(err).isInstanceOf(ServiceException.class);
-                ServiceException se = (ServiceException) err;
-                assertThat(se.getErrors().get(0).getCode()).isEqualTo("FALLBACK_B2D");
-            })
-            .verify();
-    }
+    // Assert
+    assertNotNull(result);
+    assertEquals(mockContent, result);
 }
