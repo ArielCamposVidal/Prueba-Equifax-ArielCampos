@@ -1,13 +1,10 @@
 @Test
-void getofferContent_shouldReturnContent_whenValidInput() throws Exception {
-    // Arrange
+void getofferContent_shouldThrowException_whenNoCampaignsFound() {
     String typeDevice = "mobile";
     String token = "token";
 
-    B2DResponse mockB2DResponse = new B2DResponse(); // Ajusta según tu clase real
-    ModyoResponse mockModyoResponse = new ModyoResponse(); // Ajusta según tu clase real
-    List<B2DToModyoKeyDTO> modyoKeys = List.of(new B2DToModyoKeyDTO()); // Dummy list
-    PostRetrieveCampaigncontentList mockContent = new PostRetrieveCampaigncontentList(); // El retorno final
+    B2DResponse mockB2DResponse = new B2DResponse();
+    ModyoResponse mockModyoResponse = new ModyoResponse();
 
     when(modyoRepository.callModyo(Constantsutil.CLIENT_ID))
         .thenReturn(Mono.just(mockModyoResponse));
@@ -15,16 +12,12 @@ void getofferContent_shouldReturnContent_whenValidInput() throws Exception {
     when(b2DRepository.callB2D(any()))
         .thenReturn(Mono.just(mockB2DResponse));
 
-    doReturn(modyoKeys).when(useCase)
+    doReturn(Collections.emptyList()).when(useCase)
         .extraerModyokeys(eq(mockB2DResponse), anyString());
 
-    doReturn(Mono.just(mockContent)).when(useCase)
-        .buildCampaignContentList(eq(modyoKeys), eq(Mono.just(mockModyoResponse)), eq(typeDevice));
+    Exception ex = assertThrows(ServiceException.class, () -> {
+        useCase.getofferContent(typeDevice, token).block();
+    });
 
-    // Act
-    PostRetrieveCampaigncontentList result = useCase.getofferContent(typeDevice, token).block();
-
-    // Assert
-    assertNotNull(result);
-    assertEquals(mockContent, result);
+    assertTrue(ex.getMessage().contains("Error retrieving campaign list"));
 }
