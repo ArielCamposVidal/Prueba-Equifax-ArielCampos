@@ -1,27 +1,20 @@
 @Test
-void getofferContent_shouldThrowException_whenBuildContentFails() {
-    String typeDevice = "mobile";
-    String token = "token";
+void buildCampaignContentList_shouldThrowException_whenCampaignListIsEmpty() {
+    // Arrange
+    ConsumeB2DUseCase useCase = spy(new ConsumeB2DUseCase(...));
 
-    B2DResponse mockB2DResponse = new B2DResponse();
-    ModyoResponse mockModyoResponse = new ModyoResponse();
-    List<B2DToModyoKeyDTO> modyoKeys = List.of(new B2DToModyoKeyDTO());
+    List<B2DTOModyoKeyDTO> valuesKeys = List.of(new B2DTOModyoKeyDTO()); // o vacío, da igual
+    ModyoResponse mockResponse = mock(ModyoResponse.class);
+    when(mockResponse.getDetalles()).thenReturn(List.of()); // o lo que necesite
 
-    when(modyoRepository.callModyo(Constantsutil.CLIENT_ID))
-        .thenReturn(Mono.just(mockModyoResponse));
+    // Mock procesarItemsEnOrden para que no haga nada
+    doReturn(Mono.empty()).when(useCase)
+        .procesarItemsEnOrden(any(), anyString(), any(), any());
 
-    when(b2DRepository.callB2D(any()))
-        .thenReturn(Mono.just(mockB2DResponse));
+    // Act & Assert
+    ServiceException ex = assertThrows(ServiceException.class, () ->
+        useCase.buildCampaignContentList(valuesKeys, Mono.just(mockResponse), "mobile").block()
+    );
 
-    doReturn(modyoKeys).when(useCase)
-        .extraerModyokeys(eq(mockB2DResponse), anyString());
-
-    doThrow(new RuntimeException("simulated error")).when(useCase)
-        .buildCampaignContentList(eq(modyoKeys), any(), eq(typeDevice));
-
-    Exception ex = assertThrows(ServiceException.class, () -> {
-        useCase.getofferContent(typeDevice, token).block();
-    });
-
-    assertTrue(ex.getMessage().contains("Error processing campaign data"));
+    assertTrue(ex.getMessage().contains("Error retrieving campaign list"));
 }
