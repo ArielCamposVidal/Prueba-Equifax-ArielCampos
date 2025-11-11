@@ -122,3 +122,150 @@
     matcher.appendTail(sb);
     return sb.toString();
   }
+
+
+
+Entendido. El requisito es claro: si una campaña tiene un placeholder de variable (ej: ${variable}) en su rendering, pero ese placeholder no tiene un valor de reemplazo correspondiente en la lista de detalles, esa campaña entera debe ser descartada y no aparecer en el resultado final.
+
+La lógica actual (.orElse(placeholder)) simplemente mantiene el placeholder original, lo cual no es lo que deseas.
+
+El enfoque más limpio y óptimo, dado que ya estás usando una cadena reactiva (Project Reactor), es usar el canal de error para señalizar que un elemento debe ser filtrado.
+
+Podemos hacer que replaceVariables lance una excepción personalizada simple cuando no encuentre una variable. Esta excepción subirá por la pila de llamadas (processMap -> replaceVariablesInRendering), se convertirá en un error en el Mono<Void>, y luego la capturaremos en processB2DResponse para filtrar el elemento.
+
+Este es el plan de 3 pasos:
+
+Crear una excepción personalizada simple que actúe como señal.
+
+Modificar replaceVariables para que lance esta excepción si no encuentra un reemplazo.
+
+Modificar replaceVariablesInRendering para que maneje esta excepción correctamente.
+
+Modificar processB2DResponse para que capture este error y filtre el elemento.
+
+1. Crear Excepción Personalizada
+Primero, define una excepción simple. Puedes poner esto como una clase interna estática privada dentro de CampaignContentUtils o en su propio archivo.
+
+Java
+
+/**
+ * Excepción interna para señalar que una variable requerida no se encontró durante el reemplazo.
+ * Se usa para control de flujo en la cadena reactiva.
+ */
+private static class MissingVariableException extends RuntimeException {
+    public MissingVariableException(String variableName) {
+        super("No se encontró valor de detalle para la variable: " + variableName);
+    }
+}
+2. Modificar replaceVariables
+Aquí cambiamos la lógica. En lugar de .orElse(placeholder), buscamos el valor. Si es nulo (no se encontró), lanzamos nuestra nueva excepción.
+
+Java
+
+  public static String replaceVariables(String text, List<Map<String, String>> detalles) {
+    if (text == null) {
+      return null;
+    }
+    var sb = new StringBuffer();
+    // Asumo que VARIABLE_PATTERN captura ("${gls_det}") como grupo 1 y "gls_det" como grupo 2
+    var matcher = VARIABLE_PATTERN.matcher(text); 
+    
+    while (matcher.find()) {
+      String placeholder = matcher.group(1); // ej: "${variable}"
+      String glsDet = matcher.group(2);      // ej: "variable"
+      
+      String value =
+        detalles.stream()
+          .filter(det -> glsDet.equals(det.get("gls_det")))
+          .map(det -> det.get("vlr_det"))
+          .findFirst()
+          .orElse(null); // <-- Importante: cambiar a orElse(null)
+
+      if (value == null) {
+        // ¡Variable encontrada pero sin reemplazo! Lanzamos la excepción.
+        throw new MissingVariableException(glsDet);
+      }
+      
+      matcher.appendReplacement(sb, Matcher.quoteReplacement(value));
+    }
+    matcher.appendTail(sb);
+    return sb.toString();
+  }
+3. Modificar replaceVariablesInRendering
+Debemos ajustar el bloque try-catch para que no envuelva nuestra MissingVariableException en una ServiceException. Queremos que se propague como sí misma.
+
+Java
+
+  public static Mono<Void> replaceVariablesInRendering(Object renderingObject, List<Map<String, String>> detalles) {
+    if (renderingObject == null || detalles == null) {
+      return Mono.empty();
+    }
+    return Mono.fromRunnable(() -> {
+      try {
+        Map<String, Object> map = objectMapper.convertValue(renderingObject, new TypeReference<>() {});
+        processMap(map, detalles); // Esto puede lanzar MissingVariableException
+        objectMapper.updateValue(renderingObject, map);
+      } catch (MissingVariableException e) {
+        // Propagamos nuestra excepción de señal para que la cadena reactiva la capture
+        throw e; 
+      } catch (Exception e) {
+        // Otros errores siguen siendo errores de servicio
+        throw new ServiceException(
+          HttpStatus.INTERNAL_SERVER_ERROR.value(),
+          List.of(new ErrorDetail(
+            String.valueOf(HttpStatus.INTERNAL_SERVER_ERROR.value()),
+            "Error procesando variables en rendering",
+            ConstantsUtil.ERROR,
+            e.getMessage()
+          )),
+          e
+        );
+      }
+    });
+  }
+4. Modificar processB2DResponse
+Este es el cambio final y el más importante. Usamos .onErrorResume en el flatMap para capturar nuestra excepción específica. Si la recibimos, en lugar de propagar el error, devolvemos Mono.empty(). Esto le dice al Flux que descarte (filtre) el elemento actual.
+
+Java
+
+  public Mono<PostRetrieveCampaignContentList> processB2DResponse(
+    ResSpDetailsCpnDto b2dResponse, List<CampaignContentList> campaignList) {
+    Map<String, List<Map<String, String>>> codCpnToDetalles = extractCodCpnToDetalles(b2dResponse);
+
+    return Flux.fromIterable(campaignList)
+        .flatMap(
+            campaignContent -> {
+              String codCpn = campaignContent.getContent().getCampaignOfferRenderingId();
+              List<Map<String, String>> det = codCpnToDetalles.get(codCpn);
+              if (det == null || det.isEmpty() || campaignContent.getRendering() == null) {
+                return Mono.just(campaignContent); // Conservar esta campaña
+              }
+              
+              return CampaignContentUtils.replaceVariablesInRendering(
+                      campaignContent.getRendering(), det)
+                  .thenReturn(campaignContent) // Si tiene éxito, devuelve la campaña
+                  .onErrorResume(MissingVariableException.class, e -> {
+                    // Si falla por variable faltante, NO devuelvas nada (filtra)
+                    // Opcional: puedes loggear el descarte aquí
+                    // log.warn("Descartando campaña {} por variable faltante: {}", codCpn, e.getMessage());
+                    return Mono.empty(); 
+                  });
+              // Los ServiceException (errores reales) se propagarán y detendrán el Flux,
+              // lo cual es el comportamiento esperado.
+            })
+        .collectList()
+        .map(
+            list -> {
+              var result = new PostRetrieveCampaignContentList();
+              result.setCampaignContentList(list);
+              return result;
+            });
+  }
+Resumen de la solución
+Este enfoque es el más sencillo y reactivo:
+
+No cambias las firmas de los métodos recursivos (processMap, processList, etc.).
+
+Usas una excepción específica para control de flujo, lo cual es un patrón aceptable en este contexto para "salir" de una recursión profunda.
+
+Delegas la lógica de filtrado al operador .onErrorResume, que es exactamente su propósito: manejar un error para un elemento específico en un flujo sin detener todo el flujo, permitiéndote transformarlo (en este caso, a "nada" o Mono.empty()).
