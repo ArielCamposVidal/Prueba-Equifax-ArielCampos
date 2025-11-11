@@ -1,0 +1,124 @@
+/**
+   * Processes B2D dynamic details and replaces variables in campaign rendering objects in a
+   * reactive chain.
+   *
+   * @param b2dResponse Dynamic detail response from B2D
+   * @param campaignList Campaign list to enrich
+   * @return Mono emitting the enriched campaign content list
+   */
+  public Mono<PostRetrieveCampaignContentList> processB2DResponse(
+    ResSpDetailsCpnDto b2dResponse, List<CampaignContentList> campaignList) {
+    Map<String, List<Map<String, String>>> codCpnToDetalles = extractCodCpnToDetalles(b2dResponse);
+
+    return Flux.fromIterable(campaignList)
+        .flatMap(
+            campaignContent -> {
+              String codCpn = campaignContent.getContent().getCampaignOfferRenderingId();
+              List<Map<String, String>> det = codCpnToDetalles.get(codCpn);
+              if (det == null || det.isEmpty() || campaignContent.getRendering() == null) {
+                return Mono.just(campaignContent);
+              }
+              return CampaignContentUtils.replaceVariablesInRendering(
+                      campaignContent.getRendering(), det)
+                  .thenReturn(campaignContent);
+            })
+        .collectList()
+        .map(
+            list -> {
+              var result = new PostRetrieveCampaignContentList();
+              result.setCampaignContentList(list);
+              return result;
+            });
+  }
+
+
+
+/**
+   * Replaces variable placeholders in a rendering object using the provided details.
+   * <p>
+   * This method is reactive and returns a {@link Mono} that completes when the variable replacement is done.
+   * If {@code renderingObject} or {@code detalles} is {@code null}, the method completes immediately.
+   * If an exception occurs during processing, a {@link ServiceException} is propagated in the reactive pipeline.
+   * </p>
+   *
+   * @param renderingObject the object containing variables to be replaced
+   * @param detalles        the list of detail maps for variable replacement
+   * @return a {@link Mono} that completes when replacement is finished, or propagates an error
+   */
+  public static Mono<Void> replaceVariablesInRendering(Object renderingObject, List<Map<String, String>> detalles) {
+    if (renderingObject == null || detalles == null) {
+      return Mono.empty();
+    }
+    return Mono.fromRunnable(() -> {
+      try {
+        Map<String, Object> map = objectMapper.convertValue(renderingObject, new TypeReference<>() {});
+        processMap(map, detalles);
+        objectMapper.updateValue(renderingObject, map);
+      } catch (Exception e) {
+        throw new ServiceException(
+          HttpStatus.INTERNAL_SERVER_ERROR.value(),
+          List.of(new ErrorDetail(
+            String.valueOf(HttpStatus.INTERNAL_SERVER_ERROR.value()),
+            "Error procesando variables en rendering",
+            ConstantsUtil.ERROR,
+            e.getMessage()
+          )),
+          e
+        );
+      }
+    });
+  }
+
+
+/**
+   * Processes a map recursively, replacing variable placeholders in string values and handling nested lists and maps.
+   *
+   * @param map      the map containing values to process
+   * @param detalles the list of detail maps for variable replacement
+   */
+  public static void processMap(Map<String, Object> map, List<Map<String, String>> detalles) {
+    for (Map.Entry<String, Object> entry : map.entrySet()) {
+      Object value = entry.getValue();
+      if (value instanceof String stringValue) {
+        entry.setValue(replaceVariables(stringValue, detalles));
+      } else if (value instanceof List<?> listValue) {
+        entry.setValue(processList(listValue, detalles));
+      } else if (value instanceof Map<?, ?> nestedMap) {
+        processNestedMap(nestedMap, detalles);
+      }
+    }
+  }
+
+/**
+   * Replaces variable placeholders (matching the pattern {@code ${...}}) in the given text
+   * using the values provided in the detalles list.
+   * <p>
+   * For each variable found, the method looks for a matching {@code gls_det} in the detalles
+   * and uses the corresponding {@code vlr_det} value for replacement. If no match is found,
+   * the original placeholder is retained.
+   * </p>
+   *
+   * @param text     the input text containing variable placeholders
+   * @param detalles the list of detail maps for variable replacement
+   * @return the text with all variable placeholders replaced
+   */
+  public static String replaceVariables(String text, List<Map<String, String>> detalles) {
+    if (text == null) {
+      return null;
+    }
+    var sb = new StringBuffer();
+    var matcher = VARIABLE_PATTERN.matcher(text);
+    while (matcher.find()) {
+      String placeholder = matcher.group(1);
+      String glsDet = matcher.group(2);
+      String value =
+        detalles.stream()
+          .filter(det -> glsDet.equals(det.get("gls_det")))
+          .map(det -> det.get("vlr_det"))
+          .findFirst()
+          .orElse(placeholder);
+      matcher.appendReplacement(sb, Matcher.quoteReplacement(value));
+    }
+    matcher.appendTail(sb);
+    return sb.toString();
+  }
